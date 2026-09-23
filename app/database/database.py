@@ -1,10 +1,18 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+import os
+from dotenv import load_dotenv
 
 from app.models.models import Base
-
+# 加载环境变量
+load_dotenv()
+MYSQL_HOST = os.getenv("MYSQL_HOST")
+MYSQL_PORT = os.getenv("MYSQL_PORT")
+MYSQL_USER = os.getenv("MYSQL_USER")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE")
 # 创建异步引擎
-AsyncDatabaseURL = "mysql+aiomysql://root:just1234@localhost:3306/shopflow?charset=utf8mb4"
+AsyncDatabaseURL = f"mysql+aiomysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}?charset=utf8mb4"
 engine = create_async_engine(
     AsyncDatabaseURL,
     echo = True
