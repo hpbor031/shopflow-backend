@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
+from fastapi import Depends
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -83,3 +84,4 @@ class OrderItem(Base):
     # 下单时的单价快照
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     quantity: Mapped[int] = mapped_column(Integer)
+
