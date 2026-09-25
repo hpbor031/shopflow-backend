@@ -188,7 +188,7 @@ def get_user_id_from_token(token: str) -> int | None:
     except (jwt.PyJWTError, KeyError, TypeError, ValueError):
         return None
 
-
+'''
 # ==================== 学习用演示（不影响业务代码） ====================
 # 运行方式（项目根目录）：python -m app.core.security
 # 建议先跑一遍看输出，再回头读上面的函数注释，会更好理解。
@@ -280,5 +280,4 @@ if __name__ == "__main__":
     except jwt.InvalidSignatureError as e:
         print("校验失败，异常类型 InvalidSignatureError：", e)
     print("结论：SECRET_KEY 就是公章，泄露了别人就能签发合法 token，所以必须放 .env")
-
-
+'''
