@@ -84,4 +84,3 @@ class OrderItem(Base):
     # 下单时的单价快照
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     quantity: Mapped[int] = mapped_column(Integer)
-
