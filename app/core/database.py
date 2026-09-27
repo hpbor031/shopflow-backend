@@ -23,11 +23,9 @@ async def get_session():
     async with AsyncSessionLocal() as session:
         try:
             yield session
-            await session.commit()
-        except Exception as e:
+        except Exception:
             await session.rollback()
-            raise e
-# 创建表函数
+            raise# 创建表函数
 async def create_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
