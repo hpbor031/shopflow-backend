@@ -1,9 +1,10 @@
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
-from app.schemas.user import UserCreate
+from app.schemas.user import UserCreate, UserUpdate
 from app.core.security import hash_password
 from app.models.models import User
 
@@ -66,3 +67,41 @@ async def get_user_by_id(user_id:int,db:AsyncSession):
     result = await db.execute(sql)
     user = result.scalar_one_or_none()
     return user
+
+async def user_update(user_id:int,user:UserUpdate,db:AsyncSession):
+    '''
+    修改用户信息
+    1. 检查用户是否存在
+    2. 检查用户名或邮箱是否已存在
+    3. 修改用户信息
+    '''
+    user_obj = await get_user_by_id(user_id,db)
+    if user_obj is None:
+        raise HTTPException(
+            status_code=404,
+            detail="用户不存在"
+        )
+    _text = []
+    if user.username is not None:
+        _text.append(User.username == user.username)
+    if user.email is not None:
+        _text.append(User.email == user.email)
+    if _text:
+        _sql = select(User).where(User.id!=user_id,or_(*_text))
+        result = await db.execute(_sql)
+        if result.scalars().first() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="用户名或邮箱已存在"
+            )
+        if user.username is not None:
+            user_obj.username = user.username
+        if user.email is not None:
+            user_obj.email = user.email
+        try:
+            await db.commit()
+            await db.refresh(user_obj)
+            return user_obj
+        except IntegrityError:
+            raise HTTPException(status_code=409, detail="用户名或邮箱已存在")
+    return user_obj

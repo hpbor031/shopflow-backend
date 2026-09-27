@@ -1,9 +1,9 @@
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.CRUD.user import get_user_by_username, user_create
+from app.CRUD.user import get_user_by_username, user_create,user_update
 from app.core.security import create_access_token, verify_password
-from app.schemas.user import UserCreate, UserLogin
+from app.schemas.user import UserCreate, UserLogin,UserUpdate
 
 async def register_user(user: UserCreate,db:AsyncSession):
     '''
@@ -30,4 +30,11 @@ async def login_user(user:UserLogin,db:AsyncSession):
         raise HTTPException(status_code=403,detail="账号已被禁用")
     # 登录只读不写，不需要 commit，事务由 get_session 统一收尾
     return create_access_token(user_id=user_obj.id,username=user_obj.username)
-    
+
+async def update_user_profile(user_id:int,user:UserUpdate,db:AsyncSession):
+    '''
+    修改当前登录用户个人的信息
+    '''
+    if user.username is None and user.email is None:
+        raise HTTPException(status_code=400,detail="请填写要修改的信息")
+    return await user_update(user_id,user,db)

@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.database import get_session
 from app.models.models import User
-from app.services.user import login_user, register_user
-from app.schemas.user import TokenResponse, UserCreate, UserLogin, UserMeResponse, register_response
+from app.services.user import login_user, register_user, update_user_profile
+from app.schemas.user import TokenResponse, UserCreate, UserLogin, UserMeResponse, UserUpdate, register_response
 
 router = APIRouter()
 
@@ -28,4 +28,16 @@ async def read_current_user(current_user:User = Depends(get_current_user)):
     token 缺失、伪造或过期时由 get_current_user 直接抛 401，未登录用户访问不到这个接口。
     '''
     return current_user
+
+@router.patch('/users/me',response_model=UserMeResponse)
+async def update_current_user(
+    user:UserUpdate,
+    current_user:User = Depends(get_current_user),
+    db:AsyncSession = Depends(get_session)
+):
+    '''
+    修改当前登录用户的用户名 / 邮箱（局部更新，只传要改的字段）。
+    用户身份从 token 取，请求体里没有 id，杜绝越权改别人的资料。
+    '''
+    return await update_user_profile(current_user.id,user,db)
         

@@ -16,6 +16,19 @@ class UserCreate(UserBase):
             raise ValueError('密码字节数不能多于72')
         return v
 
+class UserUpdate(BaseModel):
+    '''
+    修改个人信息（PATCH /users/me）的请求体。
+
+    两个字段全部可选，含义是"局部更新"（PATCH 的语义）：
+    - 不传某个字段，或显式传 null → 该字段保持原样，不做修改
+    - 传了才做格式校验（长度 / 邮箱格式），并参与唯一性判重
+    这里故意不继承 UserBase：UserBase 的字段都是必填（...），
+    而本模型需要每个字段都可选，单独声明比覆盖父类字段更清楚。
+    '''
+    username: str | None = Field(None, min_length=3, max_length=50, title="用户名", description="用户名，不传表示不修改")
+    email: EmailStr | None = Field(None, title="邮箱", description="邮箱，不传表示不修改")
+
 class register_response(BaseModel):
     '''
     注册响应,隐藏password_hash字段
