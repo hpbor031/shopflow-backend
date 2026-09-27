@@ -11,7 +11,7 @@ AsyncDatabaseURL = f"mysql+aiomysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}
 engine = create_async_engine(
     AsyncDatabaseURL,
     echo = True
-)
+)  
 # 创建异步会话
 AsyncSessionLocal = sessionmaker(
     engine,
