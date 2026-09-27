@@ -56,3 +56,13 @@ async def get_user_by_username(username:str,db:AsyncSession):
     result = await db.execute(sql)
     user = result.scalar_one_or_none()
     return user
+
+async def get_user_by_id(user_id:int,db:AsyncSession):
+    '''
+    按主键查询用户，供鉴权使用：
+    token 的 payload 里只有 user_id，需要拿它换回完整的用户对象。
+    '''
+    sql = select(User).where(User.id == user_id)
+    result = await db.execute(sql)
+    user = result.scalar_one_or_none()
+    return user

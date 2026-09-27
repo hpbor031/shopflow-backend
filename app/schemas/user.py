@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field, EmailStr,field_validator
 # 用户模型
 class UserBase(BaseModel):
@@ -46,5 +48,22 @@ class TokenResponse(BaseModel):
     '''
     access_token: str = Field(...,title="访问令牌", description="JWT 字符串")
     token_type: str = Field(default="bearer", title="令牌类型", description="固定为 bearer")
+
+class UserMeResponse(BaseModel):
+    '''
+    获取当前登录用户信息的响应。
+    这里逐字段显式声明，相当于给响应体加了一份白名单：
+    没有声明的字段（尤其是 password_hash）永远不会被序列化返回。
+    :param id: 用户id
+    :param username: 用户名
+    :param email: 邮箱
+    :param status: 状态
+    :param created_at: 注册时间
+    '''
+    id: int = Field(..., title="用户id", description="用户id")
+    username: str = Field(...,min_length=3, max_length=50, title="用户名", description="用户名")
+    email: EmailStr = Field(..., title="邮箱", description="邮箱")
+    status: int = Field(..., title="状态", description="状态")
+    created_at: datetime = Field(..., title="注册时间", description="注册时间")
 
 
