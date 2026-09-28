@@ -10,7 +10,11 @@ from app.models.models import User
 
 
 async def user_create(user: UserCreate, db: AsyncSession):
+    """
+    创建用户：用户名 / 邮箱任一重复返回 409，密码只存 bcrypt 哈希，不存明文。
 
+    :return: 入库后的 User 对象（含自增 id、created_at 等）
+    """
     # 检查用户名或邮箱是否已存在
     sql = select(User).where(
         or_(
@@ -53,6 +57,10 @@ async def user_create(user: UserCreate, db: AsyncSession):
         )
 
 async def get_user_by_username(username:str,db:AsyncSession):
+    '''
+    按用户名查询用户，登录时用来取出密码哈希做比对。
+    查不到返回 None，由 Service 层决定返回什么错误。
+    '''
     sql = select(User).where(User.username == username)
     result = await db.execute(sql)
     user = result.scalar_one_or_none()

@@ -11,11 +11,19 @@ router = APIRouter()
 
 @router.post('/users/register',response_model=register_response,status_code=201)
 async def register(user:UserCreate,db:AsyncSession = Depends(get_session)):
+    '''
+    用户注册接口：请求体校验通过后交给 Service 创建用户，返回新用户信息。
+    用户名或邮箱重复时由下层抛出 409。
+    '''
     result = await register_user(user,db)
     return result
 
 @router.post('/users/login',response_model=TokenResponse)
 async def login(user:UserLogin,db:AsyncSession = Depends(get_session)):
+    '''
+    用户登录接口：校验账号密码，通过后返回 access_token。
+    账号或密码错误返回 401，账号被禁用返回 403。
+    '''
     # Service 交回的是纯 token 字符串，"响应体长什么样"属于接口协议，由 API 层组装
     token = await login_user(user,db)
     return {"access_token": token, "token_type": "bearer"}

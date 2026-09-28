@@ -23,19 +23,15 @@ load_dotenv()
 # SECRET_KEY：签发和校验 token 用的密钥，相当于公司的"公章"。
 # - 签发 token 时用它计算签名
 # - 校验 token 时用它重新计算签名，对比是否一致
-# 一旦泄露，别人就能自己造出"合法"的 token 来冒充任何用户，所以必须放在 .env 里。
-# 生成方式（在项目根目录执行）：
-#   python -c "import secrets; print(secrets.token_urlsafe(32))"
 SECRET_KEY: str = os.getenv("SECRET_KEY", "")
 
 # 签名算法。HS256 = HMAC + SHA256，属于"对称加密"：
 # 签发和校验用的是同一个密钥 SECRET_KEY（本项目用这种，最简单）。
-# 另一种是 RS256 非对称算法（私钥签发、公钥校验），多用于多方系统，本项目不需要。
 ALGORITHM: str = "HS256"
 
 # access_token 的有效期（分钟）。超过这个时间，token 会被 PyJWT 判定为过期而失效。
 # 有效期越短越安全（被偷了也很快失效），但也意味着用户要更频繁地重新登录。
-# 电商项目一般 30~120 分钟，这里默认 60。
+# 这里默认 60。
 ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 
 # 启动时就检查密钥是否配置好，避免带着"空密钥"运行：

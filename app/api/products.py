@@ -17,6 +17,9 @@ async def get_products(
     page:int = 1,
     page_size:int = 10
 ):
+    """
+    商品列表接口：支持关键词搜索、分类 / 状态筛选、排序与分页，返回当前页的商品列表。
+    """
     products = await product_list(
         db,
         keyword= keyword,

@@ -8,6 +8,10 @@ from app.schemas.product import ProductCreate,ProductUpdate
 
 #查询商品详情
 async def product_get(product_id:int,db:AsyncSession):
+    """
+    按 id 查询商品，查不到直接抛 404。
+    更新 / 删除前也会先调用它确认商品存在。
+    """
     sql = select(Product).where(Product.id ==product_id)
     result = await db.execute(sql)#result查询结果容器
     product = result.scalar_one_or_none()
@@ -20,6 +24,7 @@ async def product_get(product_id:int,db:AsyncSession):
 
 #创建商品
 async def product_create(product:ProductCreate,db:AsyncSession):
+    """按请求体创建商品并入库，返回带自增 id、时间戳的商品对象。"""
     product_obj = Product(
         category_id = product.category_id,
         name = product.name,
@@ -35,6 +40,7 @@ async def product_create(product:ProductCreate,db:AsyncSession):
 
 #修改商品
 async def product_update(product_id : int, product:ProductUpdate,db:AsyncSession):
+    """局部更新商品：只覆盖请求体里传了的字段，商品不存在时抛 404。"""
     product_obj = await product_get(product_id,db)
     #model_dump(把 Pydantic 模型对象转换成 Python 字典） exclude_unset(排除没有被设置的)
     update_data = product.model_dump(exclude_unset=True)
@@ -48,6 +54,7 @@ async def product_update(product_id : int, product:ProductUpdate,db:AsyncSession
 
 #删除商品
 async def product_delete(product_id : int,db:AsyncSession):
+    """删除商品，返回被删除的商品对象；商品不存在时抛 404。"""
     product_obj = await product_get(product_id,db)
     await db.delete( product_obj )
 
@@ -87,6 +94,8 @@ async def product_list(
         sql = sql.where(Product.status == status)
 
     #确定排序字段并排序
+    # 把sort_by转换成 SQLAlchemy 的列对象 如：'price' -> Product.price
+    # 动态转换
     sort_column = getattr(Product,sort_by)
     if order == "asc":
         sql= sql.order_by(sort_column.asc())
