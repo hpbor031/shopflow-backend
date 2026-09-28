@@ -79,4 +79,21 @@ class UserMeResponse(BaseModel):
     status: int = Field(..., title="状态", description="状态")
     created_at: datetime = Field(..., title="注册时间", description="注册时间")
 
+class PasswordUpdate(BaseModel):
+    '''
+    修改密码（PATCH /users/me/password）的请求体。
+    必须同时提供旧密码，做一次二次身份确认，避免 token 泄露后被人直接改掉密码。
+    :param old_password: 旧密码
+    :param new_password: 新密码
+    '''
+    old_password: str = Field(..., title="旧密码", description="旧密码")
+    new_password: str = Field(...,min_length=6, max_length=50, title="新密码", description="新密码")
+    @field_validator('new_password')
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        'new_password 字段的自定义校验函数：bcrypt 只处理前 72 字节，这里限制字节数'
+        if len(v.encode('utf-8')) > 72:
+            raise ValueError('密码字节数不能多于72')
+        return v
+
 
