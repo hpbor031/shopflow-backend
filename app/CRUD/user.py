@@ -113,3 +113,13 @@ async def user_update(user_id:int,user:UserUpdate,db:AsyncSession):
         except IntegrityError:
             raise HTTPException(status_code=409, detail="用户名或邮箱已存在")
     return user_obj
+
+async def update_user_password(user:User,password:str,db:AsyncSession):
+    '''
+    修改用户密码
+    只更新 `password_hash` 后 commit
+    '''
+    user.password_hash = hash_password(password)
+    await db.commit()
+    await db.refresh(user)
+    return user

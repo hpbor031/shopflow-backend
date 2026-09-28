@@ -1,9 +1,9 @@
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.CRUD.user import get_user_by_username, user_create,user_update
+from app.CRUD.user import get_user_by_id, get_user_by_username, update_user_password, user_create,user_update
 from app.core.security import create_access_token, verify_password
-from app.schemas.user import UserCreate, UserLogin,UserUpdate
+from app.schemas.user import PasswordUpdate, UserCreate, UserLogin,UserUpdate
 
 async def register_user(user: UserCreate,db:AsyncSession):
     '''
@@ -38,3 +38,17 @@ async def update_user_profile(user_id:int,user:UserUpdate,db:AsyncSession):
     if user.username is None and user.email is None:
         raise HTTPException(status_code=400,detail="请填写要修改的信息")
     return await user_update(user_id,user,db)
+
+async def change_password(user_id:int,user:PasswordUpdate,db:AsyncSession):
+    '''
+    修改密码：先按 user_id 取出用户，再用旧密码做一次二次身份确认。
+
+    旧密码不正确统一返回 401，不额外透露账号信息。
+    '''
+    user_obj = await get_user_by_id(user_id,db)
+    if user_obj is None:
+        raise HTTPException(status_code=404,detail="用户不存在")
+    if not verify_password(user.old_password,user_obj.password_hash):
+        raise HTTPException(status_code=401,detail="旧密码错误")
+    return await update_user_password(user_obj,user.new_password,db)
+
