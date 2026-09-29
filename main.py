@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from app.core.database import create_tables,engine
 from app.api.users import router as users_router
+from app.api.products import router as products_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -23,6 +24,7 @@ app = FastAPI(lifespan=lifespan)
 
 # 注册用户相关路由（/users/register、/users/login、/users/me）
 app.include_router(users_router)
+app.include_router(products_router)
 
 @app.get("/")
 async def root():
