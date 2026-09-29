@@ -26,3 +26,8 @@
 - 数据库操作使用 ORM
 - 敏感配置放 .env
 - API / Service / CRUD 分层
+## 开发人员
+-hp 
+-lxy
+我们共同编写这个项目，每次提交到分支main-dev-futhre/'功能名称'
+然后再PR到dev分支，最后合并到main分支

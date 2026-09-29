@@ -1,0 +1,35 @@
+# ShopFlow Backend 依赖清单（版本按本地 .venv 实际安装版本固定）
+#
+# 安装方式（项目根目录）：
+#   uv pip install --python .venv\Scripts\python.exe -r requirements.txt
+# 或激活虚拟环境后：
+#   .\.venv\Scripts\Activate.ps1
+#   pip install -r requirements.txt
+
+# ---------- Web 框架与服务器 ----------
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+
+# ---------- 数据库：SQLAlchemy 2.x 异步 + aiomysql 驱动 ----------
+sqlalchemy[asyncio]==2.1.0
+aiomysql==0.3.2
+# MySQL 8 默认认证插件是 caching_sha2_password，PyMySQL/aiomysql 走该插件时
+# 必须用 cryptography 做 RSA 公钥加密，缺了会在连库时报：
+#   RuntimeError: 'cryptography' package is required for sha256_password
+#   or caching_sha2_password auth methods
+cryptography==50.0.1
+
+# ---------- 配置：读取 .env ----------
+python-dotenv==1.2.3
+
+# ---------- 认证：bcrypt 密码哈希 + JWT ----------
+bcrypt==5.0.0
+PyJWT==2.15.0
+
+# ---------- 数据校验：Pydantic v2（[email] 用于 EmailStr） ----------
+pydantic[email]==2.13.5
+
+# ---------- 后续阶段再补（当前代码未使用，先不装） ----------
+# redis            # 商品缓存（PROJECT_SPEC 第 4 节）
+# alembic          # 数据库迁移
+# pytest / httpx   # 测试
