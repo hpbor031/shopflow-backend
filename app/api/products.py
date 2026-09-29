@@ -1,8 +1,8 @@
 from fastapi import APIRouter,Depends
 from app.core.database import get_session
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.CRUD.product import product_create, product_delete, product_get, product_list, product_update
 from app.schemas.product import ProductCreate, ProductOut, ProductUpdate
+from app.services.product import create_product_service, delete_product_service, get_product_service, list_product_service, update_product_service
 
 router = APIRouter()
 
@@ -34,7 +34,7 @@ page_size：每页返回的商品数量，默认为 10 条
 根据前端传入的查询条件，调用 CRUD 层的 product_list()
 查询数据库中的商品，并将查询结果返回给前端。
 """
-    products = await product_list(
+    products = await list_product_service(
         db,
         keyword= keyword,
         category_id=category_id,
@@ -48,20 +48,20 @@ page_size：每页返回的商品数量，默认为 10 条
 
 @router.get("/products/{product_id}",response_model=ProductOut)
 async def get_product(product_id:int,db:AsyncSession=Depends(get_session)):
-    product = await product_get(product_id,db)
+    product = await get_product_service(product_id,db)
     return product
 
 @router.post("/products",response_model=ProductOut)
 async def post_product(product:ProductCreate ,db:AsyncSession=Depends(get_session)):
-    product_obj = await product_create(product,db)
+    product_obj = await create_product_service(product,db)
     return product_obj
 
 @router.put("/products/{product_id}",response_model=ProductOut)
 async def put_product(product_id:int, product: ProductUpdate,db:AsyncSession = Depends(get_session)):
-    product_obj = await product_update(product_id,product,db)
+    product_obj = await update_product_service(product_id,product,db)
     return product_obj
 
 @router.delete("/products/{product_id}",response_model=ProductOut)
 async def delete_product(product_id:int, db:AsyncSession = Depends(get_session)):
-    product_obj = await product_delete(product_id,db)
+    product_obj = await delete_product_service(product_id,db)
     return product_obj
