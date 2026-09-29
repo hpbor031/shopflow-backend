@@ -85,10 +85,11 @@ async def product_list(
     """
 
     #根据搜索关键字、商品分类、商品状态筛选商品
+    # 如果命中了多个，那么多个where相当于一个 AND 关系
     sql = select(Product)
-    if keyword:
+    if keyword is not None:
         sql = sql.where(Product.name.like(f"%{keyword}%"))
-    if category_id:
+    if category_id is not None:
         sql = sql.where(Product.category_id == category_id)
     if status is not None:
         sql = sql.where(Product.status == status)
