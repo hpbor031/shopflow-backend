@@ -82,9 +82,7 @@ async def update_to_cart(user_id:int,product_id:int,data:CartItemUpdate,db:Async
             status_code=400,
             detail="商品库存不足")
     #修改数量
-    cart.quantity = data.quantity
-    await db.commit()
-    await db.refresh(cart)
+    await cart_update(cart,data.quantity,db)
 
     return build_cart_item(cart,product)
 

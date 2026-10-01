@@ -98,8 +98,6 @@ async def product_list(
         sql = sql.where(Product.status == 1)
 
     #确定排序字段并排序
-    # 把sort_by转换成 SQLAlchemy 的列对象 如：'price' -> Product.price
-    # 动态转换
     #建立白名单（商品允许排序的字段只有：创建时间、价格、销量、库存、商品id）
     allowed_sort_fields = {
     "created_at",
@@ -112,6 +110,8 @@ async def product_list(
         return None
     if order not in ["asc","desc"]:
         return None
+    # 把sort_by转换成 SQLAlchemy 的列对象 如：'price' -> Product.price
+    # 动态转换
     order_column = getattr(Product,sort_by)
 
     if order == "asc":
