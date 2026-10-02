@@ -79,13 +79,19 @@ async def cart_delete(user_id:int,product_id:int,db:AsyncSession):
     return cart
 
 #清空购物车
-async def cart_clear(user_id:int,db:AsyncSession):
+async def cart_clear(user_id:int,db:AsyncSession,commit:bool=True):
     """
 清空指定用户的购物车。
+
+commit：删除后是否立即提交事务。
+默认 True，保持「清空购物车」接口原有行为（自己提交）；
+下单流程传 False，把删购物车并入下单的同一个事务，
+由 Service 层统一 commit / rollback，避免订单和购物车状态不一致。
 """
     await db.execute(
         delete(CartItem).where(
             CartItem.user_id == user_id
         )
     )
-    await db.commit()
+    if commit:
+        await db.commit()
