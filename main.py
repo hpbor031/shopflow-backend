@@ -10,6 +10,7 @@ from app.core.database import create_tables,engine
 from app.api.users import router as users_router
 from app.api.products import router as products_router
 from app.api.cart import router as cart_router
+from app.api.categories import router as categories_router
 from app.api.order import router as order_router
 
 @asynccontextmanager
@@ -29,6 +30,7 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(users_router)
 app.include_router(products_router)
 app.include_router(cart_router)
+app.include_router(categories_router)
 app.include_router(order_router)
 @app.get("/")
 async def root():
