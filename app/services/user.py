@@ -42,10 +42,12 @@ async def update_user_profile(user_id:int,user:UserUpdate,db:AsyncSession):
 async def change_password(user_id:int,user:PasswordUpdate,db:AsyncSession):
     '''
     修改密码：先按 user_id 取出用户，再用旧密码做一次二次身份确认。
-
+    新密码不能与旧密码相同。
     旧密码不正确统一返回 401，不额外透露账号信息。
     '''
     user_obj = await get_user_by_id(user_id,db)
+    if user.old_password == user.new_password:
+        raise HTTPException(status_code=400,detail="新旧密码不能相同")
     if user_obj is None:
         raise HTTPException(status_code=404,detail="用户不存在")
     if not verify_password(user.old_password,user_obj.password_hash):

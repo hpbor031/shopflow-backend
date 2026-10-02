@@ -11,6 +11,7 @@ from app.api.users import router as users_router
 from app.api.products import router as products_router
 from app.api.cart import router as cart_router
 from app.api.categories import router as categories_router
+from app.api.order import router as order_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -30,7 +31,7 @@ app.include_router(users_router)
 app.include_router(products_router)
 app.include_router(cart_router)
 app.include_router(categories_router)
-
+app.include_router(order_router)
 @app.get("/")
 async def root():
     """根路径探活接口：返回服务名，用于确认后端已正常启动。"""

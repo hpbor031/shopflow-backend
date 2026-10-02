@@ -9,7 +9,7 @@ from app.services.product import create_product_service, delete_product_service,
 router = APIRouter()
 
 #把 CRUD 层查询出来的商品列表，返回给前端/客户端
-@router.get("/products",response_model=list[ProductOut])
+@router.get("/products",response_model=list[ProductOut])    # 返回的为多个商品列表
 async def get_products(
     db:AsyncSession = Depends(get_session),
     keyword:str |None = None,
