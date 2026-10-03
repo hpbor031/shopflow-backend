@@ -5,6 +5,10 @@ from fastapi import Depends
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+# 用户角色常量：管理模块鉴权时使用，避免在代码里到处写魔法数字
+ROLE_USER = 1   # 普通用户：只能操作自己的数据
+ROLE_ADMIN = 2  # 管理员：可以管理全部用户 / 商品 / 订单
+
 # 创建基类
 class Base(DeclarativeBase):
     """所有数据表模型的基类，只负责注册元数据，不定义公共字段"""
@@ -30,6 +34,8 @@ class User(TimestampMixin, Base):
     email: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     # 1=正常 0=禁用
     status: Mapped[int] = mapped_column(Integer, default=1)
+    # 角色：1=普通用户 2=管理员（管理模块的权限校验依据）
+    role: Mapped[int] = mapped_column(Integer, default=ROLE_USER)
 
 # categories 商品分类表
 class Category(CreatedAtMixin, Base):

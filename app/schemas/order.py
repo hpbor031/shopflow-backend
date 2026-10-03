@@ -9,7 +9,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OrderItemResponse(BaseModel):
@@ -83,5 +83,24 @@ updated_at：订单最后更新时间。
 
     model_config = ConfigDict(from_attributes=True)
 
-    
+
+class OrderStatusUpdate(BaseModel):
+    """
+    修改订单状态的请求体。
+
+    用户端 PATCH /orders/{order_id}/status
+    管理端 PATCH /admin/orders/{order_id}/status
+    两个接口共用这个模型。
+
+status：目标状态，1=待付款 2=已付款 3=已发货 4=已完成 5=已取消。
+
+这里只保证取值范围合法；「能不能从当前状态流转到目标状态」由 Service 层的状态机判断，
+非法流转返回 400，例如「已完成」的订单不允许再改回「待付款」。
+"""
+
+    status: int = Field(
+        ge=1,
+        le=5,
+        description="目标订单状态：1=待付款 2=已付款 3=已发货 4=已完成 5=已取消",
+    )
 

@@ -4,8 +4,9 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.CRUD.cart import cart_clear, cart_list
-from app.CRUD.order import create_order, create_order_items, get_order, get_order_items, get_orders, update_product_stock
+from app.CRUD.order import create_order, create_order_items, get_order, get_order_items, get_orders, restore_product_stock, update_product_stock
 from app.models.models import Order, OrderItem
+from app.schemas.order import OrderStatusUpdate
 
 
 def build_order_item(order_item:OrderItem) -> dict:
@@ -199,4 +200,109 @@ async def get_order_service(order_id:int,user_id:int,db:AsyncSession):
     # 再查该订单的全部明细，最后组装成 OrderResponse（订单主表字段 + items）
     order_items = await get_order_items(order_id, db)
     return build_order(order, order_items)
-    
+
+
+# ==================== 订单状态修改 ====================
+
+# 订单状态的中文说明：拼错误提示时用，避免前端拿到一串数字不知道什么意思
+ORDER_STATUS_TEXT: dict[int, str] = {
+    1: "待付款",
+    2: "已付款",
+    3: "已发货",
+    4: "已完成",
+    5: "已取消",
+}
+
+# 订单状态机：key 是订单当前状态，value 是「允许改成」的目标状态集合。
+# 这么做是为了防止乱改状态，例如「已完成」的订单被改回「待付款」重新卖一次。
+# 4（已完成）和 5（已取消）是终态，不再允许继续流转。
+ALLOWED_STATUS_TRANSITIONS: dict[int, set[int]] = {
+    1: {2, 5},  # 待付款 → 已付款（买家付款）/ 已取消
+    2: {3, 5},  # 已付款 → 已发货 / 已取消（已付款后取消一般还需要退款，这里只改状态与库存）
+    3: {4},     # 已发货 → 已完成（买家确认收货）
+    4: set(),   # 已完成：订单结束
+    5: set(),   # 已取消：订单结束
+}
+
+
+async def _change_order_status(order: Order, data: OrderStatusUpdate, db: AsyncSession):
+    """
+    订单状态变更的公共逻辑（用户端与管理端共用）。
+
+    order：已经从数据库查出来的订单主表对象。
+    data：目标状态。
+    db：数据库异步会话。
+
+    步骤：
+    1. 按状态机校验：不允许的流转（如「已完成 → 待付款」）直接 400，
+       错误信息里带上中文状态名，前端可以直接展示；
+    2. 目标状态是「已取消」时，把下单时扣掉的库存与销量还回商品表；
+    3. 写入新状态并提交，最后返回完整的订单详情（结构与其他订单接口一致）。
+    """
+    target_status = data.status
+    allowed_status = ALLOWED_STATUS_TRANSITIONS.get(order.status, set())
+    if target_status not in allowed_status:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"订单当前状态为「{ORDER_STATUS_TEXT.get(order.status, order.status)}」，"
+                f"不能修改为「{ORDER_STATUS_TEXT.get(target_status, target_status)}」"
+            ),
+        )
+
+    # 取消订单要归还库存：下单时扣过，现在把商品还回去，否则库存会假性变少
+    if target_status == 5:
+        order_items = await get_order_items(order.id, db)
+        await restore_product_stock(order_items, db)
+
+    order.status = target_status
+    # 状态与库存回滚处于同一个事务：commit 一起生效，异常由 get_session 统一 rollback
+    await db.commit()
+    await db.refresh(order)
+
+    # commit 后重新取一次明细，保证返回的订单详情与数据库一致
+    order_items = await get_order_items(order.id, db)
+    return build_order(order, order_items)
+
+
+async def update_order_status_service(order_id:int,data:OrderStatusUpdate,user_id:int,db:AsyncSession):
+    """
+    修改订单状态（用户端：PATCH /orders/{order_id}/status）。
+
+    order_id：要修改的订单 ID。
+    data：目标状态。
+    user_id：当前登录用户 ID，用于校验订单归属，防止改到别人的订单。
+    db：数据库异步会话。
+
+    订单不存在、或订单不属于当前登录用户，统一返回 404「订单不存在」；
+    状态流转不合法返回 400。可取消（改成 5）自己的订单，取消时库存自动归还。
+    """
+    order = await get_order(order_id, db)
+    if order is None or order.user_id != user_id:
+        raise HTTPException(
+            status_code=404,
+            detail="订单不存在"
+        )
+    return await _change_order_status(order, data, db)
+
+
+async def admin_update_order_status_service(order_id:int,data:OrderStatusUpdate,db:AsyncSession):
+    """
+    修改任意订单状态（管理端：PATCH /admin/orders/{order_id}/status）。
+
+    order_id：要修改的订单 ID。
+    data：目标状态。
+    db：数据库异步会话。
+
+    与用户端的唯一区别：管理员可以操作所有用户的订单，所以不做归属校验；
+    但同样受状态机约束（已完成 / 已取消的订单不能再改）。
+    真实业务里管理端的「已发货」等状态通常由物流回调驱动，这里保留为手动接口，便于演示与联调。
+    """
+    order = await get_order(order_id, db)
+    if order is None:
+        raise HTTPException(
+            status_code=404,
+            detail="订单不存在"
+        )
+    return await _change_order_status(order, data, db)
+
