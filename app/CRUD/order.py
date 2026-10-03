@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # 这里操作的是数据库表，用的是 ORM 模型：
 # Order = orders 表，OrderItem = order_items 表
 # 购物车里的数据（CartItem + Product）由 app.CRUD.cart.cart_list() 提供，不在这里重复查询
-from app.models.models import Order, OrderItem
+from app.models.models import Order, OrderItem, Product
 
 async def create_order(user_id:int,total_amount:Decimal,db: AsyncSession):
     '''
@@ -74,6 +74,37 @@ async def update_product_stock(cart_items:list[Row],db:AsyncSession):
     await db.flush()
     return cart_items
 
+async def restore_product_stock(order_items:list[OrderItem],db:AsyncSession):
+    """
+    取消订单时归还库存、回退销量（与 update_product_stock 的操作正好相反）。
+
+    order_items：该订单在 order_items 表里的全部明细（里面存着购买数量）。
+    db：数据库异步会话。
+
+    为什么需要它：
+    下单时扣了库存、加了销量；订单被取消后商品并没有真的卖出去，
+    所以要把这部分还回商品表，否则库存会越卖越少（假性缺货）。
+
+    容错：商品被物理删除时跳过（历史订单仍然可以取消，不会因此报错）。
+    这里的 stock / sales 直接读当前值再加减，适合本项目这种单人演示场景；
+    真实高并发环境应改用 UPDATE ... SET stock = stock + n 的原子写法，避免并发覆盖。
+
+    只 flush 不 commit：事务边界由 Service 层统一管理。
+    """
+    for order_item in order_items:
+        # 按外键取商品：商品被下架（status=0）也能查到，只有物理删除才查不到
+        product = await db.get(Product, order_item.product_id)
+        if product is None:
+            continue
+        product.stock += order_item.quantity
+        product.sales -= order_item.quantity
+        # 销量不允许出现负数（例如商品被手工改过销量时兜底）
+        if product.sales < 0:
+            product.sales = 0
+
+    await db.flush()
+    return order_items
+
 async def get_order(order_id:int,db:AsyncSession) -> Order | None:
     """
     根据订单 id 查询订单主表记录。
@@ -85,24 +116,26 @@ async def get_order(order_id:int,db:AsyncSession) -> Order | None:
     """
     return await db.get(Order, order_id)
 
-async def get_orders(user_id:int,db:AsyncSession,page:int=1,page_size:int=10) -> list[Order]:
+async def get_orders(user_id:int | None,db:AsyncSession,page:int=1,page_size:int=10) -> list[Order]:
     """
     根据用户 id 分页查询该用户的订单（新订单在前）。
 
-    user_id：用户 id。
+    user_id：用户 id。传 None 表示「不按用户过滤」，即管理员视角查询全部订单。
     db：数据库异步会话。
     page：当前页码，从 1 开始，默认第 1 页。
     page_size：每页条数，默认 10 条。
 
-    返回该用户当前页的订单列表，没有订单则返回空列表。
+    返回当前页的订单列表，没有订单则返回空列表。
     page / page_size 的合法性（是否小于 0、是否超过上限）由 API 层的 Query(ge=..., le=...) 把关。
     """
+    sql = select(Order)
+    # 普通用户只能看到自己的订单；管理员传 None，这里不加过滤条件即可看到全部订单
+    if user_id is not None:
+        sql = sql.where(Order.user_id == user_id)
+    # 按主键倒序：id 越大代表下单越晚，新订单排在最前面
+    # 分页：先跳过前面 (page - 1) 页的数据，再取本页的 page_size 条
     sql = (
-        select(Order)
-        .where(Order.user_id == user_id)
-        # 按主键倒序：id 越大代表下单越晚，新订单排在最前面
-        .order_by(Order.id.desc())
-        # 分页：先跳过前面 (page - 1) 页的数据，再取本页的 page_size 条
+        sql.order_by(Order.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )

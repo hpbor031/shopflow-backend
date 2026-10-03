@@ -123,3 +123,32 @@ async def update_user_password(user:User,password:str,db:AsyncSession):
     await db.commit()
     await db.refresh(user)
     return user
+
+async def get_users(db:AsyncSession,page:int=1,page_size:int=10):
+    '''
+    分页查询用户列表（管理模块使用，按 id 升序，先注册的排在前面）。
+
+    只做数据库查询，不做权限判断：是不是管理员由 API 层的依赖把关。
+    返回 User 对象列表；响应体由 UserMeResponse 白名单控制，
+    没有声明的字段（password_hash）不会被返回。
+    '''
+    sql = (
+        select(User)
+        .order_by(User.id.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    result = await db.execute(sql)
+    return result.scalars().all()
+
+async def update_user_status(user:User,status:int,db:AsyncSession):
+    '''
+    修改用户状态（1=正常 0=禁用），管理模块使用。
+
+    status 的取值范围由 UserStatusUpdate（ge=0, le=1）在入参处校验。
+    禁用后该用户即使持有未过期的 token，也会在 get_current_user 里被 403 拦下。
+    '''
+    user.status = status
+    await db.commit()
+    await db.refresh(user)
+    return user

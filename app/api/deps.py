@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.CRUD.user import get_user_by_id
 from app.core.database import get_session
 from app.core.security import decode_token
-from app.models.models import User
+from app.models.models import ROLE_ADMIN, User
 
 # HTTPBearer：声明本项目的认证方式是"请求头里带 Bearer token"。
 # 创建一个“Bearer Token 提取器”
@@ -92,3 +92,26 @@ async def get_current_user(
         raise HTTPException(status_code=403, detail="账号已被禁用")
 
     return user
+
+
+async def get_current_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    管理员门禁：在「已登录」的基础上再校验角色。
+
+    需要管理员权限的接口这样写：
+        current_admin: User = Depends(get_current_admin)
+
+    执行顺序：
+        ① 先由 get_current_user 完成登录校验（未登录 / token 非法 / 账号被禁用在这里就被拦下）
+        ② 再判断 role 是否为管理员，不是则 403
+
+    :return: ORM 的 User 对象（当前管理员）
+    :raises HTTPException 401: 未登录或 token 无效（由 get_current_user 抛出）
+    :raises HTTPException 403: 已登录但不是管理员，或账号被禁用
+    """
+    if current_user.role != ROLE_ADMIN:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    return current_user

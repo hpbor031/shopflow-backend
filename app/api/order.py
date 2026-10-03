@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.database import get_session
 from app.models.models import User
-from app.schemas.order import OrderListItemResponse, OrderResponse
-from app.services.order import create_order_service, get_order_service, get_orders_service
+from app.schemas.order import OrderListItemResponse, OrderResponse, OrderStatusUpdate
+from app.services.order import create_order_service, get_order_service, get_orders_service, update_order_status_service
 
 router = APIRouter()
 
@@ -83,3 +83,35 @@ user：通过 Token 解析出的当前登录用户，用于校验订单归属。
 查询成功返回订单主表字段 + items（下单时的商品名、单价快照与小计）。
 """
     return await get_order_service(order_id=order_id,user_id=user.id,db=db)
+
+@router.patch("/orders/{order_id}/status",response_model=OrderResponse)
+async def update_order_status_api(
+    order_id:int,
+    data:OrderStatusUpdate,
+    db:AsyncSession = Depends(get_session),
+    user:User = Depends(get_current_user)
+):
+    """
+    修改订单状态（订单状态流转：付款 / 发货 / 完成 / 取消）。
+
+    参数说明：
+    order_id：要修改的订单 ID。
+    data：目标状态，1=待付款 2=已付款 3=已发货 4=已完成 5=已取消。
+    db：数据库异步会话。
+    user：通过 Token 解析出的当前登录用户，用于校验订单归属。
+
+    功能说明：
+    调用 Service 层的 update_order_status_service() 修改订单状态：
+    1. 订单不存在、或订单不属于当前登录用户 → 404「订单不存在」；
+    2. 状态流转不合法（例如「已完成」改回「待付款」）→ 400，提示里带中文状态名；
+    3. 改成「已取消」时，下单时扣掉的库存与销量会自动归还商品表；
+    4. 修改成功后返回订单主表字段 + items（与创建订单、订单详情的返回结构一致）。
+
+    管理员要改别人的订单，请用 PATCH /admin/orders/{order_id}/status。
+    """
+    return await update_order_status_service(
+        order_id=order_id,
+        data=data,
+        user_id=user.id,
+        db=db
+    )
