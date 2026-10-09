@@ -77,6 +77,7 @@ class UserMeResponse(BaseModel):
     username: str = Field(...,min_length=3, max_length=50, title="用户名", description="用户名")
     email: EmailStr = Field(..., title="邮箱", description="邮箱")
     status: int = Field(..., title="状态", description="状态")
+    role: int = Field(..., title="角色", description="1=普通用户 2=管理员")
     created_at: datetime = Field(..., title="注册时间", description="注册时间")
 
 class PasswordUpdate(BaseModel):
@@ -95,5 +96,14 @@ class PasswordUpdate(BaseModel):
         if len(v.encode('utf-8')) > 72:
             raise ValueError('密码字节数不能多于72')
         return v
+
+
+class UserStatusUpdate(BaseModel):
+    '''
+    管理员修改用户状态（PATCH /admin/users/{user_id}/status）的请求体。
+
+    :param status: 1=正常（可登录）0=禁用（持有合法 token 也会被拒绝）
+    '''
+    status: int = Field(..., ge=0, le=1, title="用户状态", description="1=正常 0=禁用")
 
 

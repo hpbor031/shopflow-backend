@@ -46,9 +46,12 @@ async def list_product_service(
     sort_by: str = "created_at",
     order: str = "desc",
     page: int = 1,
-    page_size: int = 10
+    page_size: int = 10,
+    only_online: bool = True
 ):
-    """查询商品列表，透传 CRUD 层结果。"""
+    """查询商品列表，透传 CRUD 层结果。
+    only_online=False（管理端）时，不传 status 可以看到包含已下架在内的全部商品。
+    """
 
     products= await product_list(
         db,
@@ -58,7 +61,8 @@ async def list_product_service(
         sort_by=sort_by,
         order=order,
         page=page,
-        page_size=page_size
+        page_size=page_size,
+        only_online=only_online
     )
     if products is None:
         raise HTTPException(

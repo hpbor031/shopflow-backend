@@ -70,7 +70,8 @@ async def product_list(
         sort_by:str="created_at",
         order:str="desc",
         page:int = 1,
-        page_size:int = 10
+        page_size:int = 10,
+        only_online:bool = True
         
 ):
     """
@@ -82,6 +83,8 @@ async def product_list(
     status：商品状态，用于筛选上架、下架等状态的商品
     sort_by：排序字段，例如价格、销量、创建时间等
     order：排序方式，例如升序（asc）或降序（desc）
+    only_online：不传 status 时是否只看上架商品。
+                 前台列表用默认值 True；管理端传 False，可以看到包含已下架在内的全部商品。
     """
 
     #根据搜索关键字、商品分类、商品状态筛选商品
@@ -93,13 +96,11 @@ async def product_list(
         sql = sql.where(Product.category_id == category_id)
     if status is not None:
         sql = sql.where(Product.status == status)
-    else:
-        #默认只显示上架商品
+    elif only_online:
+        #默认只显示上架商品（管理端传 only_online=False 时不加这个条件，能看到全部商品）
         sql = sql.where(Product.status == 1)
 
     #确定排序字段并排序
-    # 把sort_by转换成 SQLAlchemy 的列对象 如：'price' -> Product.price
-    # 动态转换
     #建立白名单（商品允许排序的字段只有：创建时间、价格、销量、库存、商品id）
     allowed_sort_fields = {
     "created_at",
@@ -112,6 +113,8 @@ async def product_list(
         return None
     if order not in ["asc","desc"]:
         return None
+    # 把sort_by转换成 SQLAlchemy 的列对象 如：'price' -> Product.price
+    # 动态转换
     order_column = getattr(Product,sort_by)
 
     if order == "asc":
