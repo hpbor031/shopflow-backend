@@ -1,0 +1,42 @@
+services:
+  app:
+    build: .
+    container_name: shopflow-app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - shopflow-network
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    container_name: shopflow-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ShopFlow
+      MYSQL_USER: shopflow_user
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - shopflow-network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+
+networks:
+  shopflow-network:
+    driver: bridge
