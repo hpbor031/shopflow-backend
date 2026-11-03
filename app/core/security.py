@@ -8,52 +8,6 @@
 本模块不碰数据库、不写业务逻辑，只做纯函数式的加解密工作，
 这样任何一层（service / api）都可以直接复用它。
 
-==================== 一、JWT 是什么 ====================
-
-JWT（JSON Web Token）是服务器签发给客户端的一张"电子入场券"。
-HTTP 是无状态的，服务器不认识"上一个请求是谁发的"，所以需要客户端每次请求都带上凭证。
-用 JWT 时服务器不保存登录状态，状态全写在 token 里，靠签名防止别人伪造。
-
-一个 token 就是一个 "." 分隔的三段字符串：
-
-    eyJhbGciOiJIUzI1NiJ9 . eyJzdWIiOiIxIiwiZXhwIjoxNzU4NjAwMDB9 . dBjftJeZ4CVP-mB92Xk
-    └──── Header ① ────┘   └──────── Payload ② ──────────┘   └──── Signature ③ ────┘
-
-    ① Header  ：算法信息 {"alg": "HS256", "typ": "JWT"}，固定写法
-    ② Payload ：业务数据 {"sub": "1", "iat": ..., "exp": ...}
-                ！注意：它只是 base64url 编码，不是加密！任何人复制到 jwt.io 都能解开看，
-                 所以绝对不能放密码、手机号这类敏感信息
-    ③ Signature：用服务器密钥 SECRET_KEY 对 ①② 做 HMAC-SHA256 算出来的签名
-                ！它的唯一作用是防篡改：别人把 ② 里的 sub 改成别人的 id 想冒充该用户，
-                 签名就对不上，服务器直接拒绝
-
-结论：Payload 可读但不可篡改；SECRET_KEY 泄露 = 公章被盗 = 认证失效。
-
-==================== 二、在本项目中的完整流程 ====================
-
-注册：
-    明文密码 --bcrypt.hashpw--> password_hash 存进 users 表
-    （数据库里永远不存明文；bcrypt 每次自动生成随机"盐"，
-      同一个密码两次哈希结果不同，可以有效防彩虹表攻击）
-
-登录（签发 token）：POST /auth/login
-    username + password
-      → 按 username 查 users 表
-      → bcrypt.checkpw 校验密码
-      → jwt.encode({...}, SECRET_KEY) 签发 token
-      → 返回给客户端 {"access_token": "...", "token_type": "bearer"}
-
-访问受保护接口（校验 token）：GET /users/me
-    请求头：Authorization: Bearer <token>
-      → 取出 token
-      → jwt.decode(token, SECRET_KEY, algorithms=["HS256"])：校验签名 + 是否过期
-      → 通过后从 payload 拿到 user_id（即 sub）
-      → 用 user_id 查库，返回当前用户
-
-==================== 三、本模块依赖 ====================
-
-bcrypt：单向哈希算法（只能加密、不能解密），专为存密码设计，自带随机盐
-PyJWT ：JWT 的 Python 实现，提供 encode（签发）和 decode（校验）
 """
 
 from datetime import datetime, timedelta, timezone
