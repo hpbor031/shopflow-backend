@@ -1,6 +1,6 @@
 # ShopFlow Backend
 
-电商交易平台后端，采用 `API → Service → CRUD → Database` 分层架构与全异步实现。
+电商交易平台后端，采用 `API → Service → CRUD → Database` 分层架构与全异步实现，已通过 Docker Compose 完成容器化部署（应用容器 + MySQL 8 容器）。
 
 ## 技术栈
 
@@ -13,6 +13,7 @@
 | 数据校验 | Pydantic v2 |
 | 认证 | JWT（PyJWT）+ bcrypt |
 | 配置管理 | python-dotenv |
+| 部署 | Docker、Docker Compose v2 |
 | 缓存 | Redis（规划中） |
 
 ## 已实现功能
@@ -54,12 +55,18 @@
 
 - **统一异常处理**：业务异常 / 参数校验失败 / 未捕获异常统一响应结构，500 堆栈只进日志不外泄
 - **日志**：控制台 + `logs/shopflow.log`（5MB 轮转，保留 5 份），含请求日志中间件（方法 / 路径 / 状态码 / 耗时）
+- **容器化部署**：`Dockerfile` + `compose.yaml`，一条命令拉起应用与 MySQL 8；MySQL 健康检查通过后才启动应用，数据库用命名卷持久化，`.dockerignore` 保证 `.env`、虚拟环境与日志不会打进镜像
 
 ## 目录结构
 
 ```
 ShopFlow Backend/
 ├── main.py                 # 应用入口：日志初始化、lifespan 建表、异常处理器、请求日志中间件、挂载路由
+├── Dockerfile              # 应用镜像：python:3.13-slim + 依赖 + 源码，uvicorn 监听 0.0.0.0:8000
+├── compose.yaml            # 编排 app（由 Dockerfile 构建）+ mysql（mysql:8.0）两个服务
+├── .dockerignore           # 构建镜像时排除 .git / .venv / .env / 日志，密钥不进镜像
+├── .env.example            # 环境变量模板（复制为 .env 后填写）
+├── requirements.txt        # 依赖清单（镜像构建与本地安装共用）
 ├── logs/                   # 运行日志（gitignore，不入库）
 └── app/
     ├── api/                # 接口层：路由与依赖
@@ -84,7 +91,68 @@ ShopFlow Backend/
 
 ## 快速开始
 
-### 1. 环境准备
+两种方式任选其一：容器化部署（推荐，不用本地装 Python / MySQL）或本地开发环境（方便调试）。
+
+### 方式一：Docker Compose（推荐）
+
+前置条件：Docker Desktop（Windows / macOS）或 Docker Engine + Compose v2（Linux）。
+
+**1. 准备 `.env`**
+
+Compose 和应用容器都会读取项目根目录的 `.env`。可以直接复制 `.env.example` 再改，Docker 部署时按下表填写：
+
+```dotenv
+# 应用连库：容器内必须用服务名 mysql，不能用 localhost（localhost 指向容器自己）
+MYSQL_HOST=mysql
+MYSQL_PORT=3306
+MYSQL_USER=shopflow_user
+MYSQL_PASSWORD=你的应用账号密码
+MYSQL_DATABASE=ShopFlow
+
+# MySQL 容器初始化 + 健康检查使用（仅在数据卷首次初始化时生效）
+MYSQL_ROOT_PASSWORD=你的root密码
+
+SECRET_KEY=你的JWT密钥
+ACCESS_TOKEN_EXPIRE_MINUTES=60
+```
+
+`SECRET_KEY` 不能为空，否则应用启动即抛 `RuntimeError` 退出（见 `app/core/config.py`）。生成方式：
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+**2. 构建并启动**
+
+```bash
+docker compose up -d --build
+```
+
+首次执行会拉取 `mysql:8.0` 镜像并构建应用镜像；`shopflow-app` 会等 `shopflow-mysql` 健康检查（`mysqladmin ping`）通过后才启动。
+
+**3. 验证**
+
+```bash
+docker compose ps                                # app / mysql 都是 Up，mysql 会显示 (healthy)
+curl http://127.0.0.1:8000/                       # {"message":"ShopFlow Backend"}
+```
+
+- 服务地址：http://127.0.0.1:8000
+- 交互式文档：http://127.0.0.1:8000/docs（受保护接口可通过 Authorize 按钮粘贴 token 调试）
+- 宿主机上的数据库客户端请连 **127.0.0.1:3307**（容器内仍是 3306，映射见 `compose.yaml`）
+
+**4. 停止 / 清理**
+
+```bash
+docker compose down        # 停止并删除容器，数据库数据仍保留在数据卷中
+docker compose down -v     # 连数据卷一起删除（数据库清空，下次启动是空库，慎用）
+```
+
+更多命令、数据持久化与排错见下方 [Docker 部署](#docker-部署) 章节。
+
+### 方式二：本地开发环境
+
+#### 1. 环境准备
 
 - Python 3.13、MySQL 8
 - 创建数据库（表结构在服务启动时自动创建）：
@@ -93,7 +161,7 @@ ShopFlow Backend/
 CREATE DATABASE ShopFlow DEFAULT CHARSET utf8mb4;
 ```
 
-### 2. 安装依赖
+#### 2. 安装依赖
 
 ```bash
 python -m venv .venv
@@ -103,16 +171,16 @@ source .venv/bin/activate                                 # macOS / Linux
 pip install fastapi "uvicorn[standard]" "sqlalchemy>=2.0" aiomysql "pydantic[email]" PyJWT bcrypt python-dotenv
 ```
 
-### 3. 配置环境变量
+#### 3. 配置环境变量
 
 ```bash
 cp .env.example .env                                      # Windows: Copy-Item .env.example .env
 python -c "import secrets; print(secrets.token_urlsafe(32))"   # 生成 SECRET_KEY 并写入 .env
 ```
 
-`.env` 需要填写 MySQL 连接信息与 `SECRET_KEY`，字段说明见 `.env.example`。
+`.env` 需要填写 MySQL 连接信息与 `SECRET_KEY`，字段说明见 `.env.example`。本地运行时 `MYSQL_HOST` 填 `localhost`（或 `127.0.0.1`）、`MYSQL_USER` 填本地 MySQL 账号（如 `root`）；Docker 部署的取值不同，见 [Docker 部署 → 环境变量](#环境变量)。
 
-### 4. 启动服务
+#### 4. 启动服务
 
 ```bash
 python -m uvicorn main:app --reload
@@ -120,6 +188,86 @@ python -m uvicorn main:app --reload
 
 - 服务地址：http://127.0.0.1:8000
 - 交互式文档：http://127.0.0.1:8000/docs（受保护接口可通过 Authorize 按钮粘贴 token 调试）
+
+## Docker 部署
+
+### 服务组成
+
+| 服务 | 容器名 | 镜像 / 来源 | 端口映射 | 说明 |
+| --- | --- | --- | --- | --- |
+| `app` | `shopflow-app` | 由 `Dockerfile` 构建（`python:3.13-slim`） | `8000:8000` | FastAPI 应用，`uvicorn main:app --host 0.0.0.0 --port 8000` |
+| `mysql` | `shopflow-mysql` | `mysql:8.0` | `3307:3306` | 数据库，数据存于命名卷 `mysql_data` |
+
+- 两个服务在同一自建网络 `shopflow-network` 内，应用通过服务名 `mysql` 访问数据库
+- 启动顺序：`app` 依赖 `mysql` 的 `service_healthy` 条件，MySQL 健康检查通过后才启动应用，避免"应用先起来、连库失败直接退出"
+- `restart: unless-stopped`：容器异常退出或宿主机重启后自动拉起
+- 应用容器的环境变量由 `env_file: .env` 在运行时注入；镜像内不含 `.env`（`.dockerignore` 已排除），密码与密钥不会被打进镜像层
+
+### 环境变量
+
+同一个 `.env` 会被两处使用：`docker compose` 自身做变量替换（`MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`），应用容器再通过 `env_file` 读取，用来连数据库和签发 JWT。
+
+| 变量 | Docker 部署 | 本地运行 | 说明 |
+| --- | --- | --- | --- |
+| `MYSQL_HOST` | `mysql` | `localhost` | 容器内写 `localhost` 会连到容器自己，连不上数据库 |
+| `MYSQL_PORT` | `3306` | `3306` | 容器内网端口；宿主机客户端连容器库用 `3307` |
+| `MYSQL_USER` | `shopflow_user` | `root` 或自建账号 | MySQL 容器首次初始化时自动创建该账号并授权访问 `ShopFlow` |
+| `MYSQL_PASSWORD` | 同上账号的密码 | 本地 MySQL 密码 | 应用连库密码 |
+| `MYSQL_DATABASE` | `ShopFlow` | `ShopFlow` | 容器首次初始化时自动建库 |
+| `MYSQL_ROOT_PASSWORD` | 必填 | 不需要 | MySQL 容器初始化 + 健康检查（`mysqladmin ping`）使用 |
+| `SECRET_KEY` | 必填 | 必填 | 为空则配置校验失败，应用启动报错退出 |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | `60` | access_token 有效期（分钟） |
+
+> 本地运行与 Docker 部署交替使用时，记得切换 `MYSQL_HOST` 和 `MYSQL_USER` / `MYSQL_PASSWORD`，否则会出现"应用连不上库"或 `Access denied`。
+
+### 常用命令
+
+| 目的 | 命令 |
+| --- | --- |
+| 后台启动 | `docker compose up -d` |
+| 改代码 / 依赖后重新构建并启动 | `docker compose up -d --build` |
+| 查看容器状态 | `docker compose ps` |
+| 跟踪应用日志 | `docker compose logs -f app` |
+| 只看最近 200 行 | `docker compose logs --tail 200 app` |
+| 进入应用容器 | `docker exec -it shopflow-app bash` |
+| 进入 MySQL 命令行 | `docker exec -it shopflow-mysql mysql -ushopflow_user -p ShopFlow` |
+| 重启应用 | `docker compose restart app` |
+| 停止（保留数据） | `docker compose down` |
+| 停止并删除数据卷 | `docker compose down -v` |
+
+### 数据持久化与日志
+
+- 数据库文件在命名卷 `mysql_data`（挂载到容器内 `/var/lib/mysql`），`docker compose down`、重建容器都不会丢数据
+- `docker compose down -v` 会连卷一起删除，下次启动是空库；表结构由应用启动时的 `create_all` 自动重建
+- 应用日志写在容器内 `logs/shopflow.log`，目前未挂载到宿主机，**容器重建后日志随之丢失**。需要保留时给 `app` 服务加挂载：
+
+```yaml
+services:
+  app:
+    volumes:
+      - ./logs:/app/logs
+```
+
+### 修改管理员账号
+
+```bash
+docker exec -it shopflow-mysql mysql -ushopflow_user -p ShopFlow -e "UPDATE users SET role = 2 WHERE username = 'hp01';"
+```
+
+与本地运行一致：`role` 1=普通用户、2=管理员。改完重新登录，该账号才能访问 `/admin/*`。
+
+### 常见问题排查
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| `shopflow-app` 反复重启，日志报 `配置缺失：.env 中未找到 SECRET_KEY` | `.env` 里没有 `SECRET_KEY` 或值为空 | 补上后执行 `docker compose up -d` |
+| 日志报连不上数据库（`localhost:3306` 连接被拒） | `.env` 的 `MYSQL_HOST` 还是 `localhost` | 改成 `mysql` |
+| `Access denied for user 'root'@...` | 沿用了本地 MySQL 的账号 | Docker 部署改用 `shopflow_user` + `MYSQL_PASSWORD` |
+| `shopflow-mysql` 起不来，提示必须指定 root 密码 | `.env` 缺 `MYSQL_ROOT_PASSWORD` | 补上该项；数据卷已存在时初始化不会重跑，需 `docker compose down -v` 后重建 |
+| `Bind for 0.0.0.0:3307 failed: port is already allocated` | 宿主机端口被占用 | 改 `compose.yaml` 的映射端口，例如 `"3308:3306"` |
+| 宿主机已有本地 MySQL，想同时连容器库 | 3306 被本地占用，所以容器映射到 3307 | 客户端连 `127.0.0.1:3307` |
+| 改了代码 / 依赖，容器里没生效 | 仍在用旧镜像（`COPY` 只在构建时执行） | `docker compose up -d --build` |
+| 改了 `.env` 不生效 | 环境变量在容器创建时注入 | `docker compose up -d` 让容器按新配置重建 |
 
 ## 接口一览
 
@@ -223,6 +371,12 @@ UPDATE users SET role = 2 WHERE username = 'hp01';
 
 之后用该账号登录即可访问 `/admin/*`；非管理员访问返回 **403**，账号被禁用返回 **403**（即使 token 未过期也立即失效）。
 
+Docker 部署时在容器里执行即可（`shopflow_user` 对 `ShopFlow` 库有全部权限）：
+
+```bash
+docker exec -it shopflow-mysql mysql -ushopflow_user -p ShopFlow -e "UPDATE users SET role = 2 WHERE username = 'hp01';"
+```
+
 ## 统一响应与错误处理
 
 所有错误响应结构一致（见 `app/core/exceptions.py`）：
@@ -243,7 +397,7 @@ UPDATE users SET role = 2 WHERE username = 'hp01';
 
 ## 日志
 
-- 日志同时输出到控制台和 `logs/shopflow.log`
+- 日志同时输出到控制台和 `logs/shopflow.log`（Docker 部署时两者都在容器内，用 `docker compose logs -f app` 查看）
 - 单文件超过 5MB 自动轮转，保留最近 5 份（`shopflow.log.1` …）
 - 每个请求都会记录一条访问日志：方法、路径、状态码、耗时
 
@@ -266,9 +420,9 @@ ALTER TABLE users ADD COLUMN role INT NOT NULL DEFAULT 1 AFTER status;
 - [x] 订单模块：库存校验与扣减、事务处理、订单状态机
 - [x] 管理模块：用户管理、商品管理（含下架商品）、订单管理
 - [x] 统一异常处理与日志
+- [x] Docker / Docker Compose 部署（应用容器 + MySQL 8，含健康检查、数据卷持久化）
 - [ ] Redis 商品缓存
 - [ ] Alembic 数据库迁移
-- [ ] Docker / Docker Compose
 - [ ] 自动化测试
 
 ## 协作规范
