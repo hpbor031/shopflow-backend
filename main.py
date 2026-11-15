@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
 import time
 
+from app.core.redis_client import close_redis, init_redis
 from app.core.database import create_tables,engine
 from app.core.exceptions import register_exception_handlers
 from app.core.logger import get_logger, setup_logging
@@ -26,15 +27,21 @@ async def lifespan(app: FastAPI):
     """
     FastAPI 生命周期钩子（lifespan）。
 
-    - yield 之前：应用启动时执行，建表（表已存在则自动跳过）
-    - yield 之后：应用关闭时执行，释放数据库连接池
+    - yield 之前：应用启动时探测 Redis 并建表（表已存在则自动跳过）
+    - yield 之后：应用关闭时释放 Redis 与数据库连接池
     """
-    logger.info("ShopFlow Backend 启动中：开始检查数据库表结构")
-    await create_tables()
-    logger.info("数据库表检查完成，服务已就绪")
-    yield
-    await engine.dispose()
-    logger.info("ShopFlow Backend 已关闭：数据库连接池已释放")
+    logger.info("ShopFlow Backend 启动中：开始检查 Redis 与数据库")
+
+    await init_redis()
+
+    try:
+        await create_tables()
+        logger.info("数据库表检查完成，服务已就绪")
+        yield
+    finally:
+        await close_redis()
+        await engine.dispose()
+        logger.info("ShopFlow Backend 已关闭：Redis 与数据库连接池已释放")
 
 app = FastAPI(lifespan=lifespan)
 

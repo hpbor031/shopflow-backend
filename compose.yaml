@@ -9,6 +9,12 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # 容器内通过 Compose 服务名访问 Redis；覆盖 .env 中的 localhost
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     networks:
       - shopflow-network
     restart: unless-stopped
@@ -34,8 +40,26 @@ services:
       - shopflow-network
     restart: unless-stopped
 
+  redis:
+    image: redis:7.4-alpine
+    container_name: shopflow-redis
+    command: ["redis-server", "--appendonly", "yes", "--loglevel", "warning"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - shopflow-network
+    restart: unless-stopped
+
 volumes:
   mysql_data:
+  redis_data:
 
 networks:
   shopflow-network:

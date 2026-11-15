@@ -1,6 +1,6 @@
 # ShopFlow Backend
 
-电商交易平台后端，采用 `API → Service → CRUD → Database` 分层架构与全异步实现，已通过 Docker Compose 完成容器化部署（应用容器 + MySQL 8 容器）。
+电商交易平台后端，采用 `API → Service → CRUD → Database` 分层架构与全异步实现。商品详情和列表通过 Redis 缓存，Redis 不可用时自动回落 MySQL；应用、MySQL 8 和 Redis 7 已通过 Docker Compose 完成容器化编排。
 
 ## 技术栈
 
@@ -14,7 +14,7 @@
 | 认证 | JWT（PyJWT）+ bcrypt |
 | 配置管理 | python-dotenv |
 | 部署 | Docker、Docker Compose v2 |
-| 缓存 | Redis（规划中） |
+| 缓存 | Redis 7 + redis-py 异步客户端 |
 
 ## 已实现功能
 
@@ -31,6 +31,13 @@
 - **商品 CRUD**：创建 / 修改 / 下架（软删除，保留历史订单关联数据）
 - **商品列表**：关键词搜索、分类筛选、状态筛选、排序（白名单字段）、分页
 - **分类 CRUD**：新增 / 修改 / 删除，删除前校验分类下是否还有商品
+
+### Redis 商品缓存
+
+- **详情与列表缓存**：`GET /products/{id}` 和 `GET /products` 优先读取 Redis，未命中时查询 MySQL 并写回缓存
+- **版本化失效**：缓存键包含商品版本号；商品新增、修改、下架、下单扣库存或取消订单回补库存后递增版本，旧缓存立即逻辑失效
+- **自动过期**：缓存默认 300 秒过期，旧版本键会在 TTL 到期后自动清理，不使用 `KEYS` 扫描
+- **故障降级**：Redis 关闭、连接失败或读写超时时自动查询 MySQL，缓存故障不会阻断业务接口
 
 ### 购物车模块
 
@@ -55,7 +62,7 @@
 
 - **统一异常处理**：业务异常 / 参数校验失败 / 未捕获异常统一响应结构，500 堆栈只进日志不外泄
 - **日志**：控制台 + `logs/shopflow.log`（5MB 轮转，保留 5 份），含请求日志中间件（方法 / 路径 / 状态码 / 耗时）
-- **容器化部署**：`Dockerfile` + `compose.yaml`，一条命令拉起应用与 MySQL 8；MySQL 健康检查通过后才启动应用，数据库用命名卷持久化，`.dockerignore` 保证 `.env`、虚拟环境与日志不会打进镜像
+- **容器化部署**：`Dockerfile` + `compose.yaml`，一条命令拉起应用、MySQL 8 与 Redis 7；依赖服务健康检查通过后才启动应用，数据使用命名卷持久化
 
 ## 目录结构
 
@@ -63,7 +70,7 @@
 ShopFlow Backend/
 ├── main.py                 # 应用入口：日志初始化、lifespan 建表、异常处理器、请求日志中间件、挂载路由
 ├── Dockerfile              # 应用镜像：python:3.13-slim + 依赖 + 源码，uvicorn 监听 0.0.0.0:8000
-├── compose.yaml            # 编排 app（由 Dockerfile 构建）+ mysql（mysql:8.0）两个服务
+├── compose.yaml            # 编排 app + mysql（mysql:8.0）+ redis（redis:7.4-alpine）
 ├── .dockerignore           # 构建镜像时排除 .git / .venv / .env / 日志，密钥不进镜像
 ├── .env.example            # 环境变量模板（复制为 .env 后填写）
 ├── requirements.txt        # 依赖清单（镜像构建与本地安装共用）
@@ -78,6 +85,8 @@ ShopFlow Backend/
     │   ├── order.py        #   订单创建 / 查询 / 状态修改
     │   └── admin.py        #   管理端接口（用户 / 商品 / 订单管理）
     ├── core/               # 基础设施
+    │   ├── redis_client.py #   Redis 异步连接池、启动探测与关闭
+    │   ├── cache.py        #   JSON 缓存和版本化失效
     │   ├── config.py       #   配置（读取 .env）
     │   ├── database.py     #   异步引擎、会话依赖、建表
     │   ├── security.py     #   bcrypt 密码哈希、JWT 签发与校验
@@ -114,6 +123,13 @@ MYSQL_ROOT_PASSWORD=你的root密码
 
 SECRET_KEY=你的JWT密钥
 ACCESS_TOKEN_EXPIRE_MINUTES=60
+
+# Redis 缓存
+REDIS_ENABLED=true
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_CACHE_TTL_SECONDS=300
 ```
 
 `SECRET_KEY` 不能为空，否则应用启动即抛 `RuntimeError` 退出（见 `app/core/config.py`）。生成方式：
@@ -128,18 +144,20 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 docker compose up -d --build
 ```
 
-首次执行会拉取 `mysql:8.0` 镜像并构建应用镜像；`shopflow-app` 会等 `shopflow-mysql` 健康检查（`mysqladmin ping`）通过后才启动。
+首次执行会拉取 MySQL 与 Redis 镜像并构建应用镜像。`shopflow-app` 会等待 `shopflow-mysql` 和 `shopflow-redis` 都通过健康检查后才启动；Compose 会覆盖应用容器中的 Redis 主机名为服务名 `redis`。
 
 **3. 验证**
 
 ```bash
-docker compose ps                                # app / mysql 都是 Up，mysql 会显示 (healthy)
+docker compose ps                                # app / mysql / redis 都是 Up，依赖服务显示 (healthy)
 curl http://127.0.0.1:8000/                       # {"message":"ShopFlow Backend"}
+docker exec shopflow-redis redis-cli ping         # PONG
 ```
 
 - 服务地址：http://127.0.0.1:8000
 - 交互式文档：http://127.0.0.1:8000/docs（受保护接口可通过 Authorize 按钮粘贴 token 调试）
 - 宿主机上的数据库客户端请连 **127.0.0.1:3307**（容器内仍是 3306，映射见 `compose.yaml`）
+- Redis 仅绑定宿主机 **127.0.0.1:6379**，不会暴露给局域网
 
 **4. 停止 / 清理**
 
@@ -152,35 +170,46 @@ docker compose down -v     # 连数据卷一起删除（数据库清空，下次
 
 ### 方式二：本地开发环境
 
-#### 1. 环境准备
+#### 1. 启动 Redis
 
-- Python 3.13、MySQL 8
+Windows 没有 Redis 官方原生版本，推荐使用 Docker Desktop 运行本项目的 Redis 服务：
+
+```powershell
+docker compose up -d redis
+docker exec shopflow-redis redis-cli ping
+```
+
+预期返回 `PONG`。如果本机曾手动创建过同名 `shopflow-redis` 容器，需要先停止并删除旧容器，避免 Compose 容器名冲突。
+
+#### 2. 环境准备
+
+- Python 3.13、MySQL 8、Docker Desktop（用于 Redis）
 - 创建数据库（表结构在服务启动时自动创建）：
 
 ```sql
 CREATE DATABASE ShopFlow DEFAULT CHARSET utf8mb4;
 ```
 
-#### 2. 安装依赖
+#### 3. 安装依赖
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate                                    # Windows
 source .venv/bin/activate                                 # macOS / Linux
 
-pip install fastapi "uvicorn[standard]" "sqlalchemy>=2.0" aiomysql "pydantic[email]" PyJWT bcrypt python-dotenv
+pip install -r requirements.txt
 ```
 
-#### 3. 配置环境变量
+#### 4. 配置环境变量
 
 ```bash
 cp .env.example .env                                      # Windows: Copy-Item .env.example .env
 python -c "import secrets; print(secrets.token_urlsafe(32))"   # 生成 SECRET_KEY 并写入 .env
 ```
 
-`.env` 需要填写 MySQL 连接信息与 `SECRET_KEY`，字段说明见 `.env.example`。本地运行时 `MYSQL_HOST` 填 `localhost`（或 `127.0.0.1`）、`MYSQL_USER` 填本地 MySQL 账号（如 `root`）；Docker 部署的取值不同，见 [Docker 部署 → 环境变量](#环境变量)。
+`.env` 需要填写 MySQL 连接信息、`SECRET_KEY` 和 Redis 配置。本地运行时使用 `MYSQL_HOST=localhost`、`REDIS_HOST=127.0.0.1`；Windows 下使用 IPv4 地址可避免 `localhost` 优先解析到 IPv6 后连接超时，Redis 的其余默认配置见 `.env.example`。
 
-#### 4. 启动服务
+#### 5. 启动服务
 
 ```bash
 python -m uvicorn main:app --reload
@@ -197,9 +226,10 @@ python -m uvicorn main:app --reload
 | --- | --- | --- | --- | --- |
 | `app` | `shopflow-app` | 由 `Dockerfile` 构建（`python:3.13-slim`） | `8000:8000` | FastAPI 应用，`uvicorn main:app --host 0.0.0.0 --port 8000` |
 | `mysql` | `shopflow-mysql` | `mysql:8.0` | `3307:3306` | 数据库，数据存于命名卷 `mysql_data` |
+| `redis` | `shopflow-redis` | `redis:7.4-alpine` | `127.0.0.1:6379` | 商品缓存，开启 AOF，数据存于命名卷 `redis_data` |
 
-- 两个服务在同一自建网络 `shopflow-network` 内，应用通过服务名 `mysql` 访问数据库
-- 启动顺序：`app` 依赖 `mysql` 的 `service_healthy` 条件，MySQL 健康检查通过后才启动应用，避免"应用先起来、连库失败直接退出"
+- 三个服务在同一自建网络 `shopflow-network` 内，应用通过服务名 `mysql` 和 `redis` 访问依赖
+- 启动顺序：`app` 同时依赖 MySQL 与 Redis 的 `service_healthy` 条件，两者健康后才启动应用
 - `restart: unless-stopped`：容器异常退出或宿主机重启后自动拉起
 - 应用容器的环境变量由 `env_file: .env` 在运行时注入；镜像内不含 `.env`（`.dockerignore` 已排除），密码与密钥不会被打进镜像层
 
@@ -217,6 +247,13 @@ python -m uvicorn main:app --reload
 | `MYSQL_ROOT_PASSWORD` | 必填 | 不需要 | MySQL 容器初始化 + 健康检查（`mysqladmin ping`）使用 |
 | `SECRET_KEY` | 必填 | 必填 | 为空则配置校验失败，应用启动报错退出 |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | `60` | access_token 有效期（分钟） |
+| `REDIS_ENABLED` | `true` | `true` | 是否启用商品缓存；关闭后直接查询 MySQL |
+| `REDIS_HOST` | `redis`（Compose 覆盖） | `127.0.0.1` | Compose 内部使用服务名；本地 Python 使用 IPv4 回环地址 |
+| `REDIS_PORT` | `6379` | `6379` | Redis 端口 |
+| `REDIS_DB` | `0` | `0` | Redis 数据库编号 |
+| `REDIS_PASSWORD` | 空 | 空 | 连接带认证的外部 Redis 时填写 |
+| `REDIS_CACHE_TTL_SECONDS` | `300` | `300` | 商品缓存有效期（秒） |
+| `REDIS_SOCKET_TIMEOUT_SECONDS` | `1.0` | `1.0` | Redis 超时时间，超时后回落 MySQL |
 
 > 本地运行与 Docker 部署交替使用时，记得切换 `MYSQL_HOST` 和 `MYSQL_USER` / `MYSQL_PASSWORD`，否则会出现"应用连不上库"或 `Access denied`。
 
@@ -231,6 +268,9 @@ python -m uvicorn main:app --reload
 | 只看最近 200 行 | `docker compose logs --tail 200 app` |
 | 进入应用容器 | `docker exec -it shopflow-app bash` |
 | 进入 MySQL 命令行 | `docker exec -it shopflow-mysql mysql -ushopflow_user -p ShopFlow` |
+| 进入 Redis 命令行 | `docker exec -it shopflow-redis redis-cli` |
+| 验证 Redis | `docker exec shopflow-redis redis-cli ping` |
+| 查看商品缓存键 | `docker exec shopflow-redis redis-cli --scan --pattern "shopflow:products:*"` |
 | 重启应用 | `docker compose restart app` |
 | 停止（保留数据） | `docker compose down` |
 | 停止并删除数据卷 | `docker compose down -v` |
@@ -238,7 +278,8 @@ python -m uvicorn main:app --reload
 ### 数据持久化与日志
 
 - 数据库文件在命名卷 `mysql_data`（挂载到容器内 `/var/lib/mysql`），`docker compose down`、重建容器都不会丢数据
-- `docker compose down -v` 会连卷一起删除，下次启动是空库；表结构由应用启动时的 `create_all` 自动重建
+- Redis 开启 AOF，数据保存于命名卷 `redis_data`；缓存即使丢失也可以从 MySQL 重新生成
+- `docker compose down -v` 会删除 MySQL 和 Redis 数据卷，下次启动是空库；表结构由应用启动时的 `create_all` 自动重建
 - 应用日志写在容器内 `logs/shopflow.log`，目前未挂载到宿主机，**容器重建后日志随之丢失**。需要保留时给 `app` 服务加挂载：
 
 ```yaml
@@ -266,6 +307,9 @@ docker exec -it shopflow-mysql mysql -ushopflow_user -p ShopFlow -e "UPDATE user
 | `shopflow-mysql` 起不来，提示必须指定 root 密码 | `.env` 缺 `MYSQL_ROOT_PASSWORD` | 补上该项；数据卷已存在时初始化不会重跑，需 `docker compose down -v` 后重建 |
 | `Bind for 0.0.0.0:3307 failed: port is already allocated` | 宿主机端口被占用 | 改 `compose.yaml` 的映射端口，例如 `"3308:3306"` |
 | 宿主机已有本地 MySQL，想同时连容器库 | 3306 被本地占用，所以容器映射到 3307 | 客户端连 `127.0.0.1:3307` |
+| 应用日志反复报 Redis 连接失败，但接口仍能访问 | Redis 未启动、端口错误或本地/容器主机名配置不对 | 执行 `docker compose up -d redis`，并确认本地 Python 使用 `127.0.0.1`、Compose 应用使用 `redis` |
+| `Bind for 0.0.0.0:6379 failed: port is already allocated` | 已有 Redis 或旧容器占用 6379 端口 | 停止旧 Redis；确认旧 `shopflow-redis` 容器已删除后重新执行 Compose |
+| `Conflict. The container name "/shopflow-redis" is already in use` | 存在手动创建的同名容器 | `docker stop shopflow-redis` 后执行 `docker rm shopflow-redis`，再由 Compose 创建 |
 | 改了代码 / 依赖，容器里没生效 | 仍在用旧镜像（`COPY` 只在构建时执行） | `docker compose up -d --build` |
 | 改了 `.env` 不生效 | 环境变量在容器创建时注入 | `docker compose up -d` 让容器按新配置重建 |
 
@@ -420,8 +464,8 @@ ALTER TABLE users ADD COLUMN role INT NOT NULL DEFAULT 1 AFTER status;
 - [x] 订单模块：库存校验与扣减、事务处理、订单状态机
 - [x] 管理模块：用户管理、商品管理（含下架商品）、订单管理
 - [x] 统一异常处理与日志
-- [x] Docker / Docker Compose 部署（应用容器 + MySQL 8，含健康检查、数据卷持久化）
-- [ ] Redis 商品缓存
+- [x] Docker / Docker Compose 部署（应用 + MySQL 8 + Redis 7，含健康检查、数据卷持久化）
+- [x] Redis 商品缓存（详情 / 列表、TTL、版本化失效、故障降级）
 - [ ] Alembic 数据库迁移
 - [ ] 自动化测试
 

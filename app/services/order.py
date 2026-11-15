@@ -7,6 +7,7 @@ from app.CRUD.cart import cart_clear, cart_list
 from app.CRUD.order import create_order, create_order_items, get_order, get_order_items, get_orders, restore_product_stock, update_product_stock
 from app.models.models import Order, OrderItem
 from app.schemas.order import OrderStatusUpdate
+from app.core.cache import invalidate_product_cache
 
 
 def build_order_item(order_item:OrderItem) -> dict:
@@ -127,6 +128,8 @@ async def create_order_service(user_id:int,db:AsyncSession):
         #  任何一步失败都整体回滚，数据库回到下单前的状态
         await db.rollback()
         raise
+    #  下单成功后让商品列表和详情缓存失效，旧缓存立即逻辑失效
+    await invalidate_product_cache()
 
     return response
 
@@ -258,6 +261,9 @@ async def _change_order_status(order: Order, data: OrderStatusUpdate, db: AsyncS
     order.status = target_status
     # 状态与库存回滚处于同一个事务：commit 一起生效，异常由 get_session 统一 rollback
     await db.commit()
+    # 只有取消订单会归还库存和回退销量
+    if target_status == 5:
+        await invalidate_product_cache()
     await db.refresh(order)
 
     # commit 后重新取一次明细，保证返回的订单详情与数据库一致

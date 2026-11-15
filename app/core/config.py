@@ -49,3 +49,28 @@ MYSQL_PORT = os.getenv("MYSQL_PORT")
 MYSQL_USER = os.getenv("MYSQL_USER")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD")
 MYSQL_DATABASE = os.getenv("MYSQL_DATABASE")
+
+# ==================== Redis 配置 ====================
+
+# Redis 关闭或连接失败时，商品接口自动回落 MySQL
+REDIS_ENABLED: bool = os.getenv("REDIS_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+REDIS_HOST: str = os.getenv("REDIS_HOST", "127.0.0.1")
+REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
+REDIS_PASSWORD: str | None = os.getenv("REDIS_PASSWORD") or None
+
+# 商品缓存有效期（秒）
+REDIS_CACHE_TTL_SECONDS: int = int(
+    os.getenv("REDIS_CACHE_TTL_SECONDS", "300")
+)
+
+# Redis 连接/读写超时（秒），超时后直接查 MySQL
+REDIS_SOCKET_TIMEOUT_SECONDS: float = float(
+    os.getenv("REDIS_SOCKET_TIMEOUT_SECONDS", "1.0")
+)
